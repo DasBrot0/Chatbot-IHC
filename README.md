@@ -12,7 +12,7 @@
 
 # Para Frontend
 
-## Instaslar requerimientos
+## Instalar requerimientos
 * npm install
 
 ## Correr el servidor (modo dev)
