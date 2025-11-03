@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 # --- Importaciones de SQLModel (ORM) ---
-from sqlmodel import Field, SQLModel, select
+from sqlmodel import Field, SQLModel, select, Session, delete
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -21,11 +21,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # ==============================
 DB_FILE = "chat.db"
 DB_URL = f"sqlite+aiosqlite:///{DB_FILE}" 
-
-# 'echo=False' para no llenar la consola con logs de SQL
 engine = create_async_engine(DB_URL, echo=False) 
-
-# Variable para nuestro fallback
 DB_ENABLED = False
 
 # ==============================
@@ -33,27 +29,44 @@ DB_ENABLED = False
 # ==============================
 
 # --- Modelo de la Base de Datos (SQLModel) ---
-# Esta es la definición de nuestra tabla 'message'
+
+# Modelo para las conversaciones
+class Conversation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True)
+    title: str = Field(default="Nueva Conversación")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+# Modelo de Mensaje
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: str = Field(index=True) # index=True hace más rápidas las búsquedas
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
     sender: str
     text: str
     timestamp: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 # --- Modelos de la API (Pydantic) ---
-# Lo que el frontend envía y recibe.
 class ChatMessage(BaseModel):
-    sender: str  # 'user' o 'bot'
+    sender: str
     text: str
 
-class ChatHistoryRequest(BaseModel):
-    history: List[ChatMessage] # Usar List de 'typing' es más compatible
+# Modelo de Petición de Chat
+class ChatRequest(BaseModel):
+    history: List[ChatMessage]
     user_id: str
+    conversation_id: Optional[int] = None # puede ser nulo (para chats nuevos)
 
-# Modelo para la respuesta del chat
+# Modelo de Respuesta del Chat
 class ChatResponse(BaseModel):
     reply: str
+    conversation_id: int        # Devolvemos el ID
+    conversation_title: str   # Devolvemos el título (para la sidebar)
+
+# Modelo para la lista de la sidebar
+class ConversationInfo(BaseModel):
+    id: int
+    title: str
+    created_at: datetime
 
 # ==============================
 # 3. LLM y Sistema
@@ -71,7 +84,7 @@ llm = ChatOpenAI(
 )
 
 SYSTEM_INSTRUCTION = (
-    "Eres un modelo de ayuda psicológica. Tu objetivo es dar consejos "
+    "Eres Amiguito, un modelo de ayuda psicológica. Tu objetivo es dar consejos "
     "buenos, empáticos y seguros. Eres un asistente de apoyo. "
     "Responde siempre de forma amable."
 )
@@ -79,10 +92,9 @@ SYSTEM_INSTRUCTION = (
 # ==============================
 # 4. Lifespan
 # ==============================
+# create_db_and_tables creará AMBAS tablas (Conversation y Message)
+# gracias a SQLModel.metadata.create_all
 async def create_db_and_tables():
-    """
-    Se ejecuta al inicio para crear la tabla si no existe.
-    """
     global DB_ENABLED
     try:
         async with engine.begin() as conn:
@@ -96,13 +108,9 @@ async def create_db_and_tables():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Maneja los eventos de inicio y apagado de la aplicación.
-    """
     print("INFO:     Iniciando aplicación...")
-    await create_db_and_tables() # Llama a la función de startup
+    await create_db_and_tables()
     yield
-    # Código de Shutdown iría aquí si fuera necesario
     print("INFO:     Apagando aplicación...")
 
 # ==============================
@@ -111,7 +119,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Chatbot API",
     description="API para conectar el frontend del chatbot con Groq",
-    lifespan=lifespan # Así se usa el 'lifespan'
+    lifespan=lifespan
 )
 
 # ==============================
@@ -122,7 +130,6 @@ origins = [
     "http://localhost:3000",
     "http://localhost:5173",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -132,43 +139,76 @@ app.add_middleware(
 )
 
 # ==============================
-# 7. Endpoint: Cargar Historial (con ORM)
+# 7. Nuevos Endpoints
 # ==============================
-@app.get("/history/{user_id}", response_model=List[ChatMessage])
-async def get_history(user_id: str):
-    """
-    Devuelve el historial de chat para un usuario específico.
-    """
-    if not DB_ENABLED:
-        return [] # Fallback si la DB falló al iniciar
 
+# Endpoint para la Sidebar
+@app.get("/conversations/{user_id}", response_model=List[ConversationInfo])
+async def get_conversations(user_id: str):
+    """
+    Devuelve todas las conversaciones de un usuario para la sidebar.
+    """
+    if not DB_ENABLED: return []
     try:
-        # 'AsyncSession' es la forma de hablar con la DB
         async with AsyncSession(engine) as session:
-            # 1. Construye la consulta (statement)
-            statement = select(Message).where(Message.user_id == user_id).order_by(Message.timestamp)
-            
-            # 2. Ejecuta la consulta
+            statement = select(Conversation).where(Conversation.user_id == user_id).order_by(Conversation.created_at.desc())
             results = await session.exec(statement)
-            
-            # 3. Obtiene todos los mensajes
-            messages_from_db = results.all()
-            
-            # 4. Convierte los 'Message' (de DB) a 'ChatMessage' (de API)
-            return [{"sender": msg.sender, "text": msg.text} for msg in messages_from_db]
-            
+            conversations = results.all()
+            return conversations
     except Exception as e:
-        print(f"ERROR: No se pudo leer el historial: {e}")
-        # Si falla la lectura, devuelve vacío para que la app no se caiga
+        print(f"ERROR: No se pudo leer lista de conversaciones: {e}")
         return []
 
+# Endpoint de Historial
+@app.get("/history/{conversation_id}", response_model=List[ChatMessage])
+async def get_history(conversation_id: int): # Ahora busca por conversation_id
+    """
+    Devuelve el historial de chat para una conversación específica.
+    """
+    if not DB_ENABLED: return []
+    try:
+        async with AsyncSession(engine) as session:
+            statement = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.timestamp)
+            results = await session.exec(statement)
+            messages_from_db = results.all()
+            return [{"sender": msg.sender, "text": msg.text} for msg in messages_from_db]
+    except Exception as e:
+        print(f"ERROR: No se pudo leer el historial: {e}")
+        return []
+
+# Endpoint para borrar
+@app.delete("/conversation/{conversation_id}", status_code=204)
+async def delete_conversation(conversation_id: int):
+    """
+    Borra una conversación y todos sus mensajes.
+    """
+    if not DB_ENABLED:
+        raise HTTPException(status_code=500, detail="Base de datos no disponible")
+    
+    try:
+        async with AsyncSession(engine) as session:
+            # 1. Borrar mensajes (por la llave foránea)
+            msg_statement = delete(Message).where(Message.conversation_id == conversation_id)
+            await session.exec(msg_statement)
+            
+            # 2. Borrar la conversación
+            conv_statement = delete(Conversation).where(Conversation.id == conversation_id)
+            await session.exec(conv_statement)
+            
+            await session.commit()
+        return None # Devuelve 204 No Content
+    except Exception as e:
+        print(f"ERROR: No se pudo borrar la conversación: {e}")
+        raise HTTPException(status_code=500, detail="Error al borrar")
+
+
 # ==============================
-# 8. Endpoint: Chat (con ORM)
+# 8. Endpoint: Chat
 # ==============================
 @app.post("/chat", response_model=ChatResponse)
-async def handle_chat(request: ChatHistoryRequest):
+async def handle_chat(request: ChatRequest): # Modelo de request actualizado
     """
-    Recibe un HISTORIAL de chat, lo procesa, y GUARDA con el ORM.
+    Recibe un historial, lo procesa, y crea/actualiza la conversación.
     """
     try:
         # --- 1. Lógica del LLM (Sin cambios) ---
@@ -179,32 +219,55 @@ async def handle_chat(request: ChatHistoryRequest):
             elif msg.sender == 'bot':
                 messages_for_llm.append(AIMessage(content=msg.text))
         
-        respuesta_llm = await llm.ainvoke(messages_for_llm) # .ainvoke para asíncrono
+        respuesta_llm = await llm.ainvoke(messages_for_llm)
         bot_reply_text = respuesta_llm.content
         
-        # El último mensaje del historial es el que acaba de enviar el usuario
         user_message_text = request.history[-1].text
+        current_conversation_id = request.conversation_id
+        conversation_title = "Nueva Conversación"
 
-        # --- 2. Lógica de guardado en DB (con ORM) ---
-        if DB_ENABLED:
-            try:
-                # Prepara los objetos ORM para la DB
-                user_msg_db = Message(user_id=request.user_id, sender='user', text=user_message_text)
-                bot_msg_db = Message(user_id=request.user_id, sender='bot', text=bot_reply_text)
+        if not DB_ENABLED:
+            return ChatResponse(reply=bot_reply_text, conversation_id=-1, conversation_title="Error DB")
 
-                async with AsyncSession(engine) as session:
-                    # Añade los nuevos mensajes a la sesión
-                    session.add(user_msg_db)
-                    session.add(bot_msg_db)
-                    # Confirma la transacción (guarda en la DB)
-                    await session.commit()
-                    
-            except Exception as e:
-                # Si falla el guardado, la app no se cae, solo avisa en consola.
-                print(f"ADVERTENCIA: No se pudo guardar el mensaje en la DB: {e}")
+        # --- 2. Lógica de guardado en DB ---
+        async with AsyncSession(engine) as session:
+            conversation: Optional[Conversation] = None
+            
+            # Si ya tenemos un ID, buscamos la conversación
+            if current_conversation_id:
+                conversation = await session.get(Conversation, current_conversation_id)
+            
+            # Si no hay ID o no se encontró, creamos una nueva
+            if not conversation:
+                # Generamos un título con el primer mensaje
+                title = user_message_text[:50] + "..." if len(user_message_text) > 50 else user_message_text
+                
+                conversation = Conversation(
+                    user_id=request.user_id,
+                    title=title
+                )
+                session.add(conversation)
+                await session.commit() # Guardamos para obtener el ID
+                await session.refresh(conversation) # Obtenemos el ID generado
 
+            # Obtenemos el ID y título confirmados
+            current_conversation_id = conversation.id
+            conversation_title = conversation.title
+
+            # Guardamos los mensajes vinculados al ID de la conversación
+            user_msg_db = Message(conversation_id=current_conversation_id, sender='user', text=user_message_text)
+            bot_msg_db = Message(conversation_id=current_conversation_id, sender='bot', text=bot_reply_text)
+
+            session.add(user_msg_db)
+            session.add(bot_msg_db)
+            await session.commit()
+            
         # --- 3. Devolver respuesta ---
-        return {"reply": bot_reply_text}
+        return ChatResponse(
+            reply=bot_reply_text,
+            conversation_id=current_conversation_id,
+            conversation_title=conversation_title
+        )
 
     except Exception as e:
         print(f"Error al procesar el chat: {e}")
