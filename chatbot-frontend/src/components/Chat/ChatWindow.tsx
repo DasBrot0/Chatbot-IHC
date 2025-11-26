@@ -8,6 +8,8 @@ import {
   TextField,
   Paper,
   CircularProgress,
+  Chip,
+  Fade
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -84,24 +86,20 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Manejar envío
-  const handleSend = async () => {
-    if (input.trim() === '' || isLoading || !userId) return;
-
-    const userMessageText = input;
+  const handleSend = async (textOverride?: string) => {
+    const textToSend = textOverride || input; // Si viene del botón, usa ese. Si no, el input.
     
-    const newUserMessage: Message = {
-      sender: 'user',
-      text: userMessageText,
-    };
-    
-    // Si el primer mensaje es del bot (bienvenida), lo reemplazamos
-    const baseMessages = messages.length === 1 && messages[0].sender === 'bot'
-      ? []
-      : messages;
+    if (textToSend.trim() === '' || isLoading || !userId) return;
 
-    const updatedMessages = [...baseMessages, newUserMessage];
-    setMessages(updatedMessages);
+    // 1. Limpiamos las opciones del mensaje anterior del bot para que no se puedan volver a clickear
+    setMessages(prev => prev.map(msg => ({...msg, options: undefined})));
+
+    const newUserMsg: Message = { sender: 'user', text: textToSend };
+    
+    const base = messages.length === 1 && messages[0].sender === 'bot' && !currentConversationId ? [] : messages;
+    const updated = [...base, newUserMsg];
+    
+    setMessages(updated);
     setInput('');
     setIsLoading(true);
 
@@ -110,43 +108,36 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          history: updatedMessages,
+          history: updated,
           user_id: userId,
-          conversation_id: currentConversationId // Enviar ID actual (puede ser null)
+          conversation_id: currentConversationId
         }),
       });
 
-      if (!response.ok) throw new Error('Error en la respuesta de la API');
-
-      const data = await response.json(); 
-      // data = { reply: "...", conversation_id: 123, conversation_title: "..." }
-
-      const botResponse: Message = {
-        sender: 'bot',
-        text: data.reply,
-      };
-      setMessages(prevMessages => [...prevMessages, botResponse]);
+      if (!response.ok) throw new Error('Error API');
+      const data = await response.json();
+      
+      // AQUI RECIBIMOS LAS OPCIONES Y LAS GUARDAMOS EN EL MENSAJE
+      setMessages(prev => [
+          ...prev, 
+          { 
+              sender: 'bot', 
+              text: data.reply, 
+              options: data.options // <--- Guardamos las sugerencias
+          }
+      ]);
 
       if (!currentConversationId && data.conversation_id) {
         setCurrentConversationId(data.conversation_id);
-        
-        // ¡Avisamos a ChatScreen.tsx que se creó un nuevo chat!
         onConversationStarted(data.conversation_id);
       }
-
     } catch (error) {
-      console.error("Error al contactar la IA:", error);
-      const errorResponse: Message = {
-        sender: 'bot',
-        text: 'Lo siento, algo salió mal. Por favor, intenta de nuevo.',
-      };
-      setMessages(prevMessages => [...prevMessages, errorResponse]);
+      setMessages(prev => [...prev, { sender: 'bot', text: 'Error de conexión.' }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // El JSX es idéntico a tu 'ChatScreen' original
   return (
     <Box
       sx={{
@@ -177,92 +168,65 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
         </Toolbar>
       </AppBar>
 
-      {/* Área de Mensajes (Idéntica a la tuya) */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          overflowY: 'auto',
-          p: { xs: 2, sm: 3 },
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 2,
-        }}
-      >
+      {/* Área de Mensajes */}
+      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {messages.map((msg, index) => (
-          <Paper
-            key={index}
-            elevation={3}
-            sx={{
-              p: 1.5,
-              maxWidth: '75%',
-              alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-              bgcolor: msg.sender === 'user' ? 'primary.main' : 'background.paper',
-              color: msg.sender === 'user' ? 'primary.contrastText' : 'text.primary',
-              borderRadius: msg.sender === 'user' ? '12px 12px 0 12px' : '12px 12px 12px 0',
-                 '& h2': {
-                   fontSize: '1.25rem',
-                   fontWeight: 600,
-                   marginTop: '16px',
-                   marginBottom: '8px',
-                   borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
-                   paddingBottom: '4px',
-                 },
-                 '& p': {
-                   fontSize: '1rem',
-                   lineHeight: 1.6,
-                   margin: '0 0 12px 0',
-                 },
-                 '& ul, & ol': {
-                   paddingLeft: '24px',
-                   margin: '0 0 12px 0',
-                 },
-                 '& li': {
-                   marginBottom: '4px',
-                 },
-                 '& blockquote': {
-                   borderLeft: (theme) => `4px solid ${theme.palette.primary.main}`,
-                   paddingLeft: '16px',
-                   margin: '16px 0',
-                   fontStyle: 'italic',
-                   backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                 },
-                 '& hr': {
-                   border: 'none',
-                   borderTop: (theme) => `1px solid ${theme.palette.divider}`,
-                   margin: '24px 0',
-                 },
-                 '& table': {
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    margin: '16px 0',
-                    fontSize: '0.9rem',
-                    border: (theme) => `1px solid ${theme.palette.divider}`,
-                  },
-                  '& th, & td': {
-                    border: (theme) => `1px solid ${theme.palette.divider}`,
-                    padding: '8px 12px',
-                    textAlign: 'left',
-                  },
-                  '& th': {
-                    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
-                    fontWeight: 600,
-                  },
-                  '& tr:nth-of-type(even)': {
-                    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                  }
+          <Box 
+            key={index} 
+            sx={{ 
+                alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', 
+                maxWidth: '85%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start'
             }}
           >
-            {msg.sender === 'bot' ? (
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-              >
-                {msg.text}
-              </ReactMarkdown>
-            ) : (
-              <Typography variant="body1">{msg.text}</Typography>
+            <Paper
+                elevation={0}
+                sx={{
+                p: 2,
+                borderRadius: msg.sender === 'user' ? '18px 18px 2px 18px' : '18px 18px 18px 2px',
+                bgcolor: msg.sender === 'user' ? 'primary.main' : 'background.paper',
+                color: msg.sender === 'user' ? 'primary.contrastText' : 'text.primary',
+                border: (theme) => msg.sender === 'bot' ? `1px solid ${theme.palette.divider}` : 'none'
+                }}
+            >
+                {msg.sender === 'bot' ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                    {msg.text}
+                </ReactMarkdown>
+                ) : (
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{msg.text}</Typography>
+                )}
+            </Paper>
+
+            {/* --- RENDERIZADO DE OPCIONES DE RESPUESTA RÁPIDA --- */}
+            {msg.sender === 'bot' && msg.options && msg.options.length > 0 && (
+                <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {msg.options.map((option, idx) => (
+                        <Fade in={true} style={{ transitionDelay: `${idx * 100}ms` }} key={idx}>
+                            <Chip 
+                                label={option} 
+                                onClick={() => handleSend(option)} // Al hacer click, envía el texto
+                                clickable
+                                disabled={isLoading} // Desactivar si ya se está enviando
+                                sx={{
+                                    bgcolor: 'background.paper',
+                                    border: '1px solid',
+                                    borderColor: 'primary.main',
+                                    color: 'primary.main',
+                                    fontWeight: 500,
+                                    '&:hover': {
+                                        bgcolor: 'primary.main',
+                                        color: 'primary.contrastText',
+                                    }
+                                }}
+                            />
+                        </Fade>
+                    ))}
+                </Box>
             )}
-          </Paper>
+          </Box>
         ))}
         <div ref={messagesEndRef} />
       </Box>

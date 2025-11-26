@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -108,6 +109,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    options: List[str] = []
     conversation_id: int
     conversation_title: str
 
@@ -221,6 +223,15 @@ SYSTEM_INSTRUCTION = (
     EJEMPLO DE FLUJO IDEAL:
     Usuario: "Me siento muy ansioso y no tengo tiempo para nada."
     IA Boy: "Entiendo que te sientas así, la presión del tiempo puede ser agobiante. Estoy aquí contigo. ¿Te ayudaría hacer una pausa de 1 minuto para respirar juntos ahora mismo?"
+    
+    IMPORTANTE - SUGERENCIAS DE RESPUESTA:
+    Para facilitar la conversación, al final de cada respuesta, DEBES sugerir 2 o 3 opciones breves de lo que el usuario podría responderte.
+    El formato debe ser ESTRICTAMENTE este al final del texto:
+    [[Opción 1 | Opción 2 | Opción 3]]
+
+    Ejemplo:
+    IA Boy: "Entiendo que estés agobiado. ¿Te gustaría probar una técnica de respiración rápida?"
+    [[Sí, por favor | No ahora | ¿Cómo funciona?]]
     """
     )
 
@@ -461,15 +472,27 @@ async def handle_chat(request: ChatRequest):
                 messages_for_llm.append(AIMessage(content=msg.text))
         
         respuesta_llm = await llm.ainvoke(messages_for_llm)
-        bot_reply_text = respuesta_llm.content
+        raw_content = respuesta_llm.content
         
+        # --- LÓGICA PARA EXTRAER OPCIONES ---
+        # Buscamos el patrón [[Opcion 1 | Opcion 2]]
+        options = []
+        clean_reply = raw_content
+        
+        match = re.search(r"\[\[(.*?)\]\]", raw_content)
+        if match:
+            options_str = match.group(1)
+            options = [opt.strip() for opt in options_str.split("|")]
+            clean_reply = raw_content.replace(match.group(0), "").strip()
+
         user_message_text = request.history[-1].text
         current_conversation_id = request.conversation_id
         conversation_title = "Nueva Conversación"
 
         if not DB_ENABLED:
             return ChatResponse(
-                reply=bot_reply_text, 
+                reply=clean_reply, 
+                options=options,
                 conversation_id=-1, 
                 conversation_title="Error DB"
             )
@@ -478,22 +501,11 @@ async def handle_chat(request: ChatRequest):
             conversation: Optional[Conversation] = None
             
             if current_conversation_id:
-                conversation = await session.get(
-                    Conversation, 
-                    current_conversation_id
-                )
+                conversation = await session.get(Conversation, current_conversation_id)
             
             if not conversation:
-                title = (
-                    user_message_text[:50] + "..." 
-                    if len(user_message_text) > 50 
-                    else user_message_text
-                )
-                
-                conversation = Conversation(
-                    user_id=request.user_id,
-                    title=title
-                )
+                title = (user_message_text[:50] + "..." if len(user_message_text) > 50 else user_message_text)
+                conversation = Conversation(user_id=request.user_id, title=title)
                 session.add(conversation)
                 await session.commit()
                 await session.refresh(conversation)
@@ -501,33 +513,23 @@ async def handle_chat(request: ChatRequest):
             current_conversation_id = conversation.id
             conversation_title = conversation.title
 
-            user_msg_db = Message(
-                conversation_id=current_conversation_id, 
-                sender='user', 
-                text=user_message_text
-            )
-            bot_msg_db = Message(
-                conversation_id=current_conversation_id, 
-                sender='bot', 
-                text=bot_reply_text
-            )
+            user_msg_db = Message(conversation_id=current_conversation_id, sender='user', text=user_message_text)
+            bot_msg_db = Message(conversation_id=current_conversation_id, sender='bot', text=clean_reply)
 
             session.add(user_msg_db)
             session.add(bot_msg_db)
             await session.commit()
             
         return ChatResponse(
-            reply=bot_reply_text,
+            reply=clean_reply,
+            options=options,
             conversation_id=current_conversation_id,
             conversation_title=conversation_title
         )
 
     except Exception as e:
         print(f"Error al procesar el chat: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Hubo un problema al contactar al asistente."
-        )
+        raise HTTPException(status_code=500, detail="Hubo un problema al contactar al asistente.")
     
 # ==============================
 # 11. Endpoints de config de usuario
