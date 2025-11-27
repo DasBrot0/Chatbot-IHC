@@ -1,13 +1,9 @@
 import os
 import re
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List
 from contextlib import asynccontextmanager
-import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 # --- Importaciones de FastAPI y LangChain ---
 from fastapi import FastAPI, HTTPException
@@ -49,22 +45,17 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     hashed_password: str
-    is_verified: bool = Field(default=False)
+    # CAMBIO: Ahora por defecto es True para que entren directo
+    is_verified: bool = Field(default=True) 
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    theme_mode: str = Field(default="dark") # 'light' o 'dark'
-    primary_color: str = Field(default="#2196f3") # Color hex
+    theme_mode: str = Field(default="dark")
+    primary_color: str = Field(default="#2196f3")
 
 class UserSettingsUpdate(BaseModel):
     theme_mode: str
     primary_color: str
 
-class VerificationToken(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    # Cambiamos la referencia para que apunte a la nueva tabla 'users'
-    user_id: int = Field(foreign_key="users.id", index=True) 
-    token: str = Field(unique=True, index=True)
-    expires_at: datetime
-    used: bool = Field(default=False)
+# --- ELIMINADA LA TABLA VerificationToken ---
 
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -90,9 +81,6 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-class VerifyEmailRequest(BaseModel):
-    token: str
 
 class AuthResponse(BaseModel):
     message: str
@@ -138,52 +126,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hash_bytes = hashed_password.encode('utf-8')
     return bcrypt.checkpw(pwd_bytes, hash_bytes)
 
-def generate_verification_token() -> str:
-    return secrets.token_urlsafe(32)
-
-async def send_verification_email(email: str, token: str):
-    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER = os.getenv("SMTP_USER")
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5174")
-    
-    if not SMTP_USER or not SMTP_PASSWORD:
-        print("ADVERTENCIA: SMTP no configurado. No se enviará email.")
-        print(f"Token de verificación para {email}: {token}")
-        return
-    
-    verification_link = f"{FRONTEND_URL}/verify?token={token}"
-    
-    msg = MIMEMultipart()
-    msg['From'] = SMTP_USER
-    msg['To'] = email
-    msg['Subject'] = "Verifica tu cuenta - Chatbot IA Boy"
-    
-    body = f"""
-    <html>
-        <body>
-            <h2>Bienvenido a Chatbot IA Boy</h2>
-            <p>Gracias por registrarte. Por favor verifica tu cuenta haciendo clic en el enlace:</p>
-            <a href="{verification_link}">Verificar mi cuenta</a>
-            <p>O copia este enlace en tu navegador:</p>
-            <p>{verification_link}</p>
-            <p>Este enlace expira en 24 horas.</p>
-        </body>
-    </html>
-    """
-    
-    msg.attach(MIMEText(body, 'html'))
-    
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
-        print(f"Email enviado a {email}")
-    except Exception as e:
-        print(f"Error al enviar email: {e}")
-        print(f"Token de verificación para {email}: {token}")
+# --- ELIMINADAS FUNCIONES DE EMAIL Y TOKEN ---
 
 # ==============================
 # 5. LLM y Sistema
@@ -229,10 +172,6 @@ SYSTEM_INSTRUCTION = (
     Para facilitar la conversación, al final de cada respuesta, DEBES sugerir 2 o 3 opciones breves de lo que el usuario podría responderte.
     El formato debe ser ESTRICTAMENTE este al final del texto:
     [[Opción 1 | Opción 2 | Opción 3]]
-
-    Ejemplo:
-    IA Boy: "Entiendo que estés agobiado. ¿Te gustaría probar una técnica de respiración rápida?"
-    [[Sí, por favor | No ahora | ¿Cómo funciona?]]
     """
     )
 
@@ -273,14 +212,10 @@ app = FastAPI(
 # 8. CORS
 # ==============================
 origins = [
-    #"http://localhost",
-    #"http://localhost:3000",
-    #"http://localhost:5173",
-    #"http://127.0.0.1:5173",
-    #"http://localhost:5174",
-    #"http://127.0.0.1:5174",
-    #"http://127.0.0.1:3000",
-    "https://dasbrot0.github.io"
+    "https://dasbrot0.github.io",
+    # Descomenta estos si necesitas probar en local
+    # "http://localhost:5173", 
+    # "http://localhost:5174"
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -310,68 +245,26 @@ async def register(request: RegisterRequest):
             raise HTTPException(status_code=400, detail="El email ya está registrado")
         
         hashed_pw = hash_password(request.password)
-        new_user = User(email=request.email, hashed_password=hashed_pw)
+        
+        # AQUÍ ESTÁ EL CAMBIO CLAVE: is_verified=True
+        new_user = User(
+            email=request.email, 
+            hashed_password=hashed_pw,
+            is_verified=True # Usuario verificado automáticamente
+        )
+        
         session.add(new_user)
         await session.commit()
         await session.refresh(new_user)
         
-        token = generate_verification_token()
-        expires_at = datetime.utcnow() + timedelta(hours=24)
-        verification_token = VerificationToken(
-            user_id=new_user.id,
-            token=token,
-            expires_at=expires_at
-        )
-        session.add(verification_token)
-        await session.commit()
-        
-        await send_verification_email(request.email, token)
+        # Eliminamos toda la lógica de token y email
         
         return AuthResponse(
-            message="Registro exitoso. Por favor verifica tu email.",
+            message="Registro exitoso. ¡Bienvenido!",
             email=request.email
         )
 
-@app.post("/auth/verify", response_model=AuthResponse)
-async def verify_email(request: VerifyEmailRequest):
-    if not DB_ENABLED:
-        raise HTTPException(status_code=500, detail="Base de datos no disponible")
-    
-    async with AsyncSession(engine) as session:
-        statement = select(VerificationToken).where(
-            VerificationToken.token == request.token
-        )
-        result = await session.exec(statement)
-        token_record = result.first()
-        
-        if not token_record:
-            raise HTTPException(status_code=400, detail="Token inválido")
-        
-        user = await session.get(User, token_record.user_id)
-        if not user:
-             raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        if token_record.used:
-            return AuthResponse(
-                message="Tu correo ya ha sido verificado anteriormente. Puedes iniciar sesión.",
-                email=user.email,
-                user_id=user.id
-            )
-
-        if datetime.utcnow() > token_record.expires_at:
-            raise HTTPException(status_code=400, detail="Token expirado")
-        
-        user.is_verified = True
-        token_record.used = True
-        
-        await session.commit()
-        await session.refresh(user)
-        
-        return AuthResponse(
-            message="Email verificado exitosamente. Ya puedes iniciar sesión.",
-            email=user.email,
-            user_id=user.id
-        )
+# --- ELIMINADO ENDPOINT /auth/verify ---
 
 @app.post("/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
@@ -389,8 +282,7 @@ async def login(request: LoginRequest):
         if not verify_password(request.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Credenciales inválidas")
         
-        if not user.is_verified:
-            raise HTTPException(status_code=403, detail="Por favor verifica tu email primero")
+        # ELIMINADA LA COMPROBACIÓN if not user.is_verified
         
         return AuthResponse(
             message="Inicio de sesión exitoso",
@@ -477,7 +369,6 @@ async def handle_chat(request: ChatRequest):
         raw_content = respuesta_llm.content
         
         # --- LÓGICA PARA EXTRAER OPCIONES ---
-        # Buscamos el patrón [[Opcion 1 | Opcion 2]]
         options = []
         clean_reply = raw_content
         
