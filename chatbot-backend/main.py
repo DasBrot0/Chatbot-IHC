@@ -468,7 +468,6 @@ async def update_user_settings(user_id: str, settings: UserSettingsUpdate):
     if not user_id.isdigit():
         return {"message": "Guest settings not saved"}
 
-    # Convertimos a ENTERO
     uid_int = int(user_id)
 
     if not DB_ENABLED: 
@@ -482,6 +481,8 @@ async def update_user_settings(user_id: str, settings: UserSettingsUpdate):
             
         user.theme_mode = settings.theme_mode
         user.primary_color = settings.primary_color
+        user.preferred_name = settings.preferred_name
+        user.font_scale = settings.font_scale
         
         session.add(user)
         await session.commit()
