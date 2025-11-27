@@ -21,8 +21,8 @@ import { CHAT_URL, HISTORY_URL } from '../../api';
 
 interface ChatWindowProps {
   userId: string;
-  conversationId: number | null; // ID del chat seleccionado
-  onConversationStarted: (newId: number) => void; // Callback para avisar a App
+  conversationId: number | null; 
+  onConversationStarted: (newId: number) => void;
   onToggleSidebar: () => void;
 }
 
@@ -31,33 +31,27 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Mantenemos una referencia interna al ID, que viene de las props
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(conversationId);
-  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Sincronizar el ID de la conversación
   useEffect(() => {
     setCurrentConversationId(conversationId);
   }, [conversationId]);
 
 
-  // Cargar historial cuando cambia el ID de conversación
   useEffect(() => {
     if (currentConversationId) {
-      // Si hay un ID, cargar su historial
       loadHistory(currentConversationId);
     } else {
-      // Es un chat nuevo, mostrar bienvenida
       setMessages([
         { sender: 'bot', text: '¡Hola! Qué gusto verte por aquí. ¿Sobre qué te gustaría conversar hoy?' }
       ]);
     }
-  }, [currentConversationId]); // Se ejecuta cuando el ID cambia
+  }, [currentConversationId]); 
 
   const loadHistory = async (cid: number) => {
     setIsLoading(true);
-    setMessages([]); // Limpiar mensajes anteriores
+    setMessages([]); 
     try {
       const response = await fetch(`${HISTORY_URL}/${cid}`);
       if (!response.ok) throw new Error('Error al cargar el historial');
@@ -81,21 +75,20 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
     }
   };
 
-  // Scroll al final
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async (textOverride?: string) => {
-    const textToSend = textOverride || input; // Si viene del botón, usa ese. Si no, el input.
+    const textToSend = textOverride || input; 
     
     if (textToSend.trim() === '' || isLoading || !userId) return;
 
-    // 1. Limpiamos las opciones del mensaje anterior del bot para que no se puedan volver a clickear
     setMessages(prev => prev.map(msg => ({...msg, options: undefined})));
 
     const newUserMsg: Message = { sender: 'user', text: textToSend };
     
+    // Evitar duplicar si es el primer mensaje y ya había un saludo placeholder
     const base = messages.length === 1 && messages[0].sender === 'bot' && !currentConversationId ? [] : messages;
     const updated = [...base, newUserMsg];
     
@@ -117,13 +110,12 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
       if (!response.ok) throw new Error('Error API');
       const data = await response.json();
       
-      // AQUI RECIBIMOS LAS OPCIONES Y LAS GUARDAMOS EN EL MENSAJE
       setMessages(prev => [
           ...prev, 
           { 
               sender: 'bot', 
               text: data.reply, 
-              options: data.options // <--- Guardamos las sugerencias
+              options: data.options 
           }
       ]);
 
@@ -200,16 +192,16 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
                 )}
             </Paper>
 
-            {/* --- RENDERIZADO DE OPCIONES DE RESPUESTA RÁPIDA --- */}
+            {/* Opciones de respuesta rápida */}
             {msg.sender === 'bot' && msg.options && msg.options.length > 0 && (
                 <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                     {msg.options.map((option, idx) => (
                         <Fade in={true} style={{ transitionDelay: `${idx * 100}ms` }} key={idx}>
                             <Chip 
                                 label={option} 
-                                onClick={() => handleSend(option)} // Al hacer click, envía el texto
+                                onClick={() => handleSend(option)} 
                                 clickable
-                                disabled={isLoading} // Desactivar si ya se está enviando
+                                disabled={isLoading} 
                                 sx={{
                                     bgcolor: 'background.paper',
                                     border: '1px solid',

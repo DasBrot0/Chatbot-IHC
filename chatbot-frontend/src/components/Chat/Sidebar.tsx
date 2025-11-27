@@ -10,7 +10,8 @@ import {
   IconButton,
   CircularProgress,
   Divider,
-  alpha
+  alpha,
+  Drawer // Importamos Drawer
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -28,7 +29,13 @@ interface SidebarProps {
   refreshKey: number;
   selectedConversationId: number | null;
   onOpenSettings: () => void;
+  
+  // Props nuevas
+  onClose: () => void;
+  isMobile: boolean;
 }
+
+const DRAWER_WIDTH = 280;
 
 function Sidebar({
   isOpen,
@@ -38,12 +45,13 @@ function Sidebar({
   onConversationDeleted,
   refreshKey,
   selectedConversationId,
-  onOpenSettings
+  onOpenSettings,
+  onClose,
+  isMobile
 }: SidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // --- ESTADOS PARA EL MODAL DE BORRAR ---
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<number | null>(null);
 
@@ -66,14 +74,12 @@ function Sidebar({
     fetchConversations();
   }, [userId, refreshKey]);
 
-  // 1. Al hacer clic en el tachito, solo abrimos el modal y guardamos el ID
   const handleDeleteClick = (e: React.MouseEvent, id: number) => {
     e.stopPropagation(); 
     setChatToDelete(id);
     setDeleteDialogOpen(true);
   };
 
-  // 2. Si el usuario confirma en el modal, ejecutamos el borrado real
   const confirmDelete = async () => {
     if (chatToDelete === null) return;
 
@@ -83,7 +89,7 @@ function Sidebar({
       });
       if (!response.ok) throw new Error('Error al borrar');
       
-      onConversationDeleted(); // Actualizar UI
+      onConversationDeleted(); 
     } catch (error) {
       console.error('Error al borrar:', error);
     } finally {
@@ -92,23 +98,9 @@ function Sidebar({
     }
   };
 
-  return (
-    <Box
-      sx={{
-        width: isOpen ? 280 : 0,
-        flexShrink: 0,
-        bgcolor: 'background.paper',
-        height: '100vh',
-        borderRight: (theme) => `1px solid ${theme.palette.divider}`,
-        display: 'flex',
-        flexDirection: 'column',
-        transition: (theme) => theme.transitions.create('width', {
-          easing: theme.transitions.easing.sharp,
-          duration: theme.transitions.duration.enteringScreen,
-        }),
-        overflow: 'hidden'
-      }}
-    >
+  // --- CONTENIDO DEL SIDEBAR (COMÚN PARA AMBOS MODOS) ---
+  const drawerContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Box sx={{ p: 2 }}>
         <Button
           variant="contained"
@@ -164,8 +156,6 @@ function Sidebar({
                   primary={convo.title}
                   primaryTypographyProps={{ noWrap: true, fontSize: '0.9rem', color: 'text.primary' }}
                 />
-                
-                {/* Botón de borrar llama a handleDeleteClick */}
                 <IconButton
                   edge="end"
                   size="small"
@@ -187,7 +177,7 @@ function Sidebar({
           fullWidth
           variant="text"
           startIcon={<SettingsIcon />}
-          onClick={onOpenSettings}
+          onClick={() => { onOpenSettings(); if(isMobile) onClose(); }} // Cerrar si es móvil
           sx={{ color: 'text.secondary', justifyContent: 'flex-start', px: 2 }}
         >
           Configuración
@@ -199,11 +189,55 @@ function Sidebar({
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={confirmDelete}
         title="¿Borrar conversación?"
-        content="Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar este chat de tu historial?"
+        content="Esta acción no se puede deshacer."
         confirmText="Borrar"
         isDanger={true}
       />
+    </Box>
+  );
 
+  return (
+    <Box
+      component="nav"
+      sx={{ 
+          // Ajustamos el ancho del contenedor padre según si está abierto en escritorio
+          width: { lg: (!isMobile && isOpen) ? DRAWER_WIDTH : 0 }, 
+          flexShrink: { lg: 0 },
+          transition: (theme) => theme.transitions.create('width', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
+      }}
+    >
+      {/* 1. MODO MÓVIL / PANTALLA MEDIANA (Temporary) */}
+      <Drawer
+        variant="temporary"
+        open={isOpen && isMobile} 
+        onClose={onClose}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: 'block', lg: 'none' }, // Visible solo en pantallas < lg
+          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: DRAWER_WIDTH },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+
+      {/* 2. MODO ESCRITORIO GRANDE (Persistent) */}
+      <Drawer
+        variant="persistent"
+        open={isOpen && !isMobile} // Visible solo si NO es móvil
+        sx={{
+          display: { xs: 'none', lg: 'block' }, // Oculto en pantallas < lg
+          '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: DRAWER_WIDTH,
+              borderRight: '1px solid rgba(0, 0, 0, 0.12)'
+          },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
     </Box>
   );
 }

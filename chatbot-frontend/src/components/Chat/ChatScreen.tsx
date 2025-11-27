@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, CssBaseline, ThemeProvider, type PaletteMode, CircularProgress } from '@mui/material';
+import { Box, CssBaseline, ThemeProvider, type PaletteMode, CircularProgress, useMediaQuery, useTheme } from '@mui/material';
 import debounce from 'lodash.debounce';
 
 // Componentes
@@ -16,9 +16,16 @@ import ConfirmDialog from '../Dialogs/ConfimDialog';
 
 function ChatScreen() {
   const navigate = useNavigate();
+  const theme = useTheme();
+
+  // --- RESPONSIVIDAD ---
+  // Usamos 'lg' (1200px) como punto de quiebre. 
+  // Si la ventana es menor a eso (laptop pequeña, tablet, celular), se comporta como móvil.
+  const isMobile = useMediaQuery(theme.breakpoints.down('lg'));
 
   // Estados de UI
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // Si es "móvil/pequeño", arranca cerrado. Si es escritorio grande, arranca abierto.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [userId, setUserId] = useState<string | null>(null);
   
   // Estados de Navegación del Chat
@@ -32,6 +39,11 @@ function ChatScreen() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+  // Sincronizar estado del menú si cambia el tamaño de ventana
+  useEffect(() => {
+    setIsSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   // --- 1. CARGA INICIAL Y PROTECCIÓN ---
   useEffect(() => {
@@ -86,27 +98,28 @@ function ChatScreen() {
     if (userId) saveToApi(userId, mode, newColor);
   };
 
-  // --- 3. LÓGICA DE NAVEGACIÓN (Chat vs Bienvenida) ---
+  // --- 3. LÓGICA DE NAVEGACIÓN ---
   
-  // Click en "Nueva Conversación" (Sidebar o Botón Bienvenida)
   const handleNewChat = () => {
-    setSelectedConversationId(null); // ID null = Chat Nuevo
-    setShowWelcome(false);           // Ocultar bienvenida, mostrar ChatWindow
+    setSelectedConversationId(null); 
+    setShowWelcome(false);           
+    // Si estamos en móvil, cerramos el menú al crear chat
+    if (isMobile) setIsSidebarOpen(false);
   };
 
-  // Click en una conversación del historial (Sidebar)
   const handleSelectConversation = (id: number) => {
     setSelectedConversationId(id);
-    setShowWelcome(false);           // Ocultar bienvenida, mostrar ChatWindow con historial
+    setShowWelcome(false);           
+    // Si estamos en móvil, cerramos el menú al seleccionar
+    if (isMobile) setIsSidebarOpen(false);
   };
 
   const handleConversationDeleted = () => {
     setSelectedConversationId(null);
     setRefreshSidebarKey(prev => prev + 1);
-    setShowWelcome(true); // Si borra el chat actual, volvemos a la bienvenida
+    setShowWelcome(true); 
   };
 
-  // Callback cuando se crea el chat real (primer mensaje enviado)
   const handleConversationStarted = (newId: number) => {
     setSelectedConversationId(newId);
     setRefreshSidebarKey(prev => prev + 1);
@@ -114,13 +127,11 @@ function ChatScreen() {
 
   // --- 4. LÓGICA DE LOGOUT ---
   
-  // Abre el modal (llamado desde SettingsDialog)
   const handleLogoutClick = () => {
-    setIsSettingsOpen(false); // Cerramos settings
-    setIsLogoutDialogOpen(true); // Abrimos confirmación
+    setIsSettingsOpen(false); 
+    setIsLogoutDialogOpen(true); 
   };
 
-  // Ejecuta la salida real (llamado desde LogoutDialog)
   const confirmLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user_id');
@@ -128,10 +139,11 @@ function ChatScreen() {
     navigate('/login');
   };
 
-  const theme = useMemo(() => getTheme(mode, primaryColor), [mode, primaryColor]);
+  const themeConfig = useMemo(() => getTheme(mode, primaryColor), [mode, primaryColor]);
+  
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const closeSidebar = () => setIsSidebarOpen(false); // Para el overlay en móvil
 
-  // Spinner de carga inicial
   if (isLoadingAuth || !userId) {
     return (
       <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', bgcolor: '#0a1929' }}>
@@ -141,24 +153,41 @@ function ChatScreen() {
   }
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={themeConfig}>
       <CssBaseline />
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         
         <Sidebar
           isOpen={isSidebarOpen}
           userId={userId}
-          onSelectConversation={handleSelectConversation} // Usamos la nueva función
-          onNewChat={handleNewChat}                       // Usamos la nueva función
+          onSelectConversation={handleSelectConversation}
+          onNewChat={handleNewChat}
           onConversationDeleted={handleConversationDeleted}
           refreshKey={refreshSidebarKey}
           selectedConversationId={selectedConversationId}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onClose={closeSidebar}
+          isMobile={isMobile}
         />
         
-        <Box component="main" sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <Box 
+            component="main" 
+            sx={{ 
+                flexGrow: 1, 
+                height: '100vh', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                position: 'relative',
+                
+                minWidth: 0, 
+                overflow: 'hidden',
+                transition: theme.transitions.create('margin', {
+                    easing: theme.transitions.easing.sharp,
+                    duration: theme.transitions.duration.leavingScreen,
+                }),
+            }}
+        >
             
-            {/* AQUÍ ESTÁ LA MAGIA: Si showWelcome es true, mostramos la presentación. Si no, el Chat. */}
             {showWelcome ? (
                 <WelcomeView onNewChat={handleNewChat} />
             ) : (
@@ -180,7 +209,7 @@ function ChatScreen() {
             primaryColor={primaryColor}
             onModeChange={handleModeChange}
             onColorChange={handleColorChange}
-            onLogout={handleLogoutClick} // Pasamos la función que abre el modal
+            onLogout={handleLogoutClick} 
         />
 
         {/* Modal de Confirmación de Logout */}

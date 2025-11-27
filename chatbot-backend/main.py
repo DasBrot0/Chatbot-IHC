@@ -213,9 +213,8 @@ app = FastAPI(
 # ==============================
 origins = [
     "https://dasbrot0.github.io",
-    # Descomenta estos si necesitas probar en local
-    # "http://localhost:5173", 
-    # "http://localhost:5174"
+    "http://localhost:5173", 
+    "http://localhost:5174"
 ]
 app.add_middleware(
     CORSMiddleware,
