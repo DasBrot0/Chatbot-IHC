@@ -1,0 +1,9 @@
+# .env
+.env
+
+# Entorno virtual
+chatbot-venv/
+
+# Python
+__pycache__/
+*.pyc
