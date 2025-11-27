@@ -10,7 +10,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider theme={defaultTheme}>
       <CssBaseline />
-      <BrowserRouter>
+      <BrowserRouter basename="/Chatbot-IHC">
         <App />
       </BrowserRouter>
     </ThemeProvider>
