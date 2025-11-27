@@ -371,10 +371,11 @@ async def handle_chat(request: ChatRequest):
         options = []
         clean_reply = raw_content
         
-        match = re.search(r"\[\[(.*?)\]\]", raw_content)
+        match = re.search(r"\[\[(.*?)\]\]", raw_content, re.DOTALL) 
+        
         if match:
             options_str = match.group(1)
-            options = [opt.strip() for opt in options_str.split("|")]
+            options = [opt.strip() for opt in options_str.split("|") if opt.strip()]
             clean_reply = raw_content.replace(match.group(0), "").strip()
 
         user_message_text = request.history[-1].text
