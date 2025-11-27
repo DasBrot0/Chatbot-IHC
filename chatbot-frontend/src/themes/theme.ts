@@ -9,7 +9,7 @@ export const PRESET_COLORS = [
   '#db2777', // Rosa
 ];
 
-export const getTheme = (mode: PaletteMode, primaryColor: string) => {
+export const getTheme = (mode: PaletteMode, primaryColor: string, fontScale: number = 1.0) => {
   const isDark = mode === 'dark';
 
   // Definimos qué tan fuerte es el tinte del fondo
@@ -38,6 +38,7 @@ export const getTheme = (mode: PaletteMode, primaryColor: string) => {
     },
     typography: {
       fontFamily: '"Inter", sans-serif',
+      fontSize: 14 * fontScale,
       button: { fontWeight: 600, textTransform: 'none' },
       // Aseguramos que los títulos se vean bien
       h1: { color: isDark ? '#ffffff' : '#000000' },

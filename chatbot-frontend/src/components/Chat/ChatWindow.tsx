@@ -9,7 +9,8 @@ import {
   Paper,
   CircularProgress,
   Chip,
-  Fade
+  Fade,
+  Avatar
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -18,6 +19,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import type { Message } from '../../types';
 import { CHAT_URL, HISTORY_URL } from '../../api';
+import IABoyImage from '../../resources/IABOY.jpg';
 
 interface ChatWindowProps {
   userId: string;
@@ -88,7 +90,6 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
 
     const newUserMsg: Message = { sender: 'user', text: textToSend };
     
-    // Evitar duplicar si es el primer mensaje y ya había un saludo placeholder
     const base = messages.length === 1 && messages[0].sender === 'bot' && !currentConversationId ? [] : messages;
     const updated = [...base, newUserMsg];
     
@@ -162,64 +163,81 @@ function ChatWindow({ userId, conversationId, onConversationStarted, onToggleSid
 
       {/* Área de Mensajes */}
       <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {messages.map((msg, index) => (
-          <Box 
-            key={index} 
-            sx={{ 
-                alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', 
-                maxWidth: '85%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start'
-            }}
-          >
-            <Paper
-                elevation={0}
-                sx={{
-                p: 2,
-                borderRadius: msg.sender === 'user' ? '18px 18px 2px 18px' : '18px 18px 18px 2px',
-                bgcolor: msg.sender === 'user' ? 'primary.main' : 'background.paper',
-                color: msg.sender === 'user' ? 'primary.contrastText' : 'text.primary',
-                border: (theme) => msg.sender === 'bot' ? `1px solid ${theme.palette.divider}` : 'none'
+        {messages.map((msg, index) => {
+            const isUser = msg.sender === 'user';
+            
+            return (
+              <Box 
+                key={index} 
+                sx={{ 
+                    // Cambiamos a flex row para poner el avatar al lado
+                    display: 'flex',
+                    alignItems: 'flex-start', // Avatar arriba alineado con el texto
+                    justifyContent: isUser ? 'flex-end' : 'flex-start',
+                    gap: 1.5,
+                    maxWidth: '100%',
                 }}
-            >
-                {msg.sender === 'bot' ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                    {msg.text}
-                </ReactMarkdown>
-                ) : (
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{msg.text}</Typography>
+              >
+                {/* --- AVATAR DEL BOT (Solo se muestra si el emisor es el bot) --- */}
+                {!isUser && (
+                    <Avatar 
+                        src={IABoyImage} 
+                        alt="IA Boy"
+                        sx={{ width: 40, height: 40, border: '1px solid rgba(255,255,255,0.1)' }} 
+                    />
                 )}
-            </Paper>
 
-            {/* Opciones de respuesta rápida */}
-            {msg.sender === 'bot' && msg.options && msg.options.length > 0 && (
-                <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {msg.options.map((option, idx) => (
-                        <Fade in={true} style={{ transitionDelay: `${idx * 100}ms` }} key={idx}>
-                            <Chip 
-                                label={option} 
-                                onClick={() => handleSend(option)} 
-                                clickable
-                                disabled={isLoading} 
-                                sx={{
-                                    bgcolor: 'background.paper',
-                                    border: '1px solid',
-                                    borderColor: 'primary.main',
-                                    color: 'primary.main',
-                                    fontWeight: 500,
-                                    '&:hover': {
-                                        bgcolor: 'primary.main',
-                                        color: 'primary.contrastText',
-                                    }
-                                }}
-                            />
-                        </Fade>
-                    ))}
+                {/* Contenedor del mensaje y opciones */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            p: 2,
+                            borderRadius: isUser ? '18px 18px 2px 18px' : '2px 18px 18px 18px', // Esquinita cuadrada hacia el avatar
+                            bgcolor: isUser ? 'primary.main' : 'background.paper',
+                            color: isUser ? 'primary.contrastText' : 'text.primary',
+                            border: (theme) => !isUser ? `1px solid ${theme.palette.divider}` : 'none'
+                        }}
+                    >
+                        {!isUser ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                            {msg.text}
+                        </ReactMarkdown>
+                        ) : (
+                        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{msg.text}</Typography>
+                        )}
+                    </Paper>
+
+                    {/* Opciones de respuesta rápida */}
+                    {!isUser && msg.options && msg.options.length > 0 && (
+                        <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {msg.options.map((option, idx) => (
+                                <Fade in={true} style={{ transitionDelay: `${idx * 100}ms` }} key={idx}>
+                                    <Chip 
+                                        label={option} 
+                                        onClick={() => handleSend(option)} 
+                                        clickable
+                                        disabled={isLoading} 
+                                        sx={{
+                                            bgcolor: 'background.paper',
+                                            border: '1px solid',
+                                            borderColor: 'primary.main',
+                                            color: 'primary.main',
+                                            fontWeight: 500,
+                                            '&:hover': {
+                                                bgcolor: 'primary.main',
+                                                color: 'primary.contrastText',
+                                            }
+                                        }}
+                                    />
+                                </Fade>
+                            ))}
+                        </Box>
+                    )}
                 </Box>
-            )}
-          </Box>
-        ))}
+              </Box>
+            );
+        })}
         <div ref={messagesEndRef} />
       </Box>
 

@@ -13,15 +13,14 @@ import {
   Tooltip,
   Alert,
   List,
-  ListItem,
   ListItemButton,
   ListItemIcon,
-  ListItemText
+  ListItemText,
+  Slider,
+  TextField
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import LogoutIcon from '@mui/icons-material/Logout';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import SecurityIcon from '@mui/icons-material/Security';
 import { PRESET_COLORS } from '../../../themes/theme';
 
 interface SettingsDialogProps {
@@ -32,6 +31,10 @@ interface SettingsDialogProps {
   onModeChange: (mode: 'light' | 'dark') => void;
   onColorChange: (color: string) => void;
   onLogout: () => void;
+  preferredName: string;
+  onNameChange: (name: string) => void;
+  fontScale: number;
+  onFontScaleChange: (scale: number) => void;
 }
 
 export default function SettingsDialog({
@@ -41,7 +44,11 @@ export default function SettingsDialog({
   primaryColor,
   onModeChange,
   onColorChange,
-  onLogout
+  onLogout,
+  preferredName,
+  onNameChange,
+  fontScale,
+  onFontScaleChange
 }: SettingsDialogProps) {
 
   return (
@@ -122,26 +129,26 @@ export default function SettingsDialog({
 
         <Divider sx={{ my: 3 }} />
 
-        {/* SECCIÓN GENERAL */}
-        <Typography variant="overline" color="primary" fontWeight={700} sx={{ letterSpacing: 1.2 }}>
-          Cuenta
-        </Typography>
+        {/* --- SECCIÓN TAMAÑO LETRA --- */}
+        <Box sx={{ mb: 3 }}>
+            <Typography variant="body2">Tamaño de Texto</Typography>
+            <Box sx={{ px: 2 }}>
+                <Slider 
+                    value={fontScale} min={0.8} max={1.4} step={0.1}
+                    marks={[{value: 0.8, label: 'A-'}, {value: 1.0, label: 'A'}, {value: 1.4, label: 'A+'}]}
+                    onChange={(_, v) => onFontScaleChange(v as number)}
+                />
+            </Box>
+        </Box>
 
-        <List>
-          {/* Estos iconos ya salen coloreados gracias a theme.ts */}
-          <ListItem disablePadding>
-            <ListItemButton sx={{ borderRadius: 2 }}>
-              <ListItemIcon><NotificationsIcon /></ListItemIcon>
-              <ListItemText primary="Notificaciones" secondary="Alertas y sonidos" />
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton sx={{ borderRadius: 2 }}>
-              <ListItemIcon><SecurityIcon /></ListItemIcon>
-              <ListItemText primary="Privacidad" secondary="Datos y seguridad" />
-            </ListItemButton>
-          </ListItem>
-        </List>
+        <Divider sx={{ my: 3 }} />
+
+        <Box sx={{ mt: 2, mb: 3 }}>
+            <TextField 
+                fullWidth label="¿Cómo te gustaría que te llame?"
+                value={preferredName} onChange={(e) => onNameChange(e.target.value)}
+            />
+        </Box>
 
         <Divider sx={{ my: 3 }} />
 

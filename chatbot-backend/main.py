@@ -45,17 +45,18 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     hashed_password: str
-    # CAMBIO: Ahora por defecto es True para que entren directo
     is_verified: bool = Field(default=True) 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     theme_mode: str = Field(default="dark")
     primary_color: str = Field(default="#2196f3")
+    preferred_name: Optional[str] = Field(default=None)
+    font_scale: float = Field(default=1.0)
 
 class UserSettingsUpdate(BaseModel):
     theme_mode: str
     primary_color: str
-
-# --- ELIMINADA LA TABLA VerificationToken ---
+    preferred_name: Optional[str] = None
+    font_scale: float = 1.0
 
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -357,7 +358,17 @@ async def delete_conversation(conversation_id: int):
 @app.post("/chat", response_model=ChatResponse)
 async def handle_chat(request: ChatRequest):
     try:
-        messages_for_llm = [SystemMessage(content=SYSTEM_INSTRUCTION)]
+        user_name = "Usuario"
+        if DB_ENABLED and request.user_id.isdigit():
+             async with AsyncSession(engine) as session:
+                user = await session.get(User, int(request.user_id))
+                if user and user.preferred_name:
+                    user_name = user.preferred_name
+        
+        final_instruction = SYSTEM_INSTRUCTION + f"\n\nIMPORTANTE: El usuario se llama '{user_name}'. Úsalo para ser cálido."
+
+        messages_for_llm = [SystemMessage(content=final_instruction)]
+
         for msg in request.history:
             if msg.sender == 'user':
                 messages_for_llm.append(HumanMessage(content=msg.text))
@@ -432,20 +443,25 @@ async def handle_chat(request: ChatRequest):
 async def get_user_settings(user_id: str): 
     # Validación de seguridad
     if not user_id.isdigit():
-        return {"theme_mode": "dark", "primary_color": "#2196f3"}
+        return {"theme_mode": "dark", "primary_color": "#2196f3", "preferred_name": "usuario", "font_scale": 1.0}
     
     # Convertimos a ENTERO
     uid_int = int(user_id)
 
     if not DB_ENABLED: 
-        return {"theme_mode": "dark", "primary_color": "#2196f3"}
+        return {"theme_mode": "dark", "primary_color": "#2196f3", "preferred_name": "usuario", "font_scale": 1.0}
     
     async with AsyncSession(engine) as session:
         user = await session.get(User, uid_int)
         
         if not user:
-            return {"theme_mode": "dark", "primary_color": "#2196f3"}
-        return {"theme_mode": user.theme_mode, "primary_color": user.primary_color}
+            return {"theme_mode": "dark", "primary_color": "#2196f3", "preferred_name": "usuario", "font_scale": 1.0}
+        return {
+            "theme_mode": user.theme_mode, 
+            "primary_color": user.primary_color,
+            "preferred_name": user.preferred_name or "",
+            "font_scale": user.font_scale or 1.0
+        }
 
 @app.put("/user/{user_id}/settings")
 async def update_user_settings(user_id: str, settings: UserSettingsUpdate):

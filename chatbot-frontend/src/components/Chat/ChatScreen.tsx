@@ -40,6 +40,9 @@ function ChatScreen() {
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
+  const [preferredName, setPreferredName] = useState('');
+  const [fontScale, setFontScale] = useState(1.0);
+
   // Sincronizar estado del menú si cambia el tamaño de ventana
   useEffect(() => {
     setIsSidebarOpen(!isMobile);
@@ -65,6 +68,8 @@ function ChatScreen() {
         .then(data => {
             if (data.theme_mode) setMode(data.theme_mode);
             if (data.primary_color) setPrimaryColor(data.primary_color);
+            if (data.preferred_name) setPreferredName(data.preferred_name);
+            if (data.font_scale) setFontScale(data.font_scale);
         })
         .catch(() => console.log("Usando tema por defecto"))
         .finally(() => setIsLoadingAuth(false));
@@ -73,30 +78,38 @@ function ChatScreen() {
 
   // --- 2. AUTO-GUARDADO PREFERENCIAS ---
   const saveToApi = useCallback(
-    debounce(async (uid: string, newMode: string, newColor: string) => {
-      if (!uid) return;
-      try {
-        await fetch(`${USER_SETTINGS_URL}/${uid}/settings`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ theme_mode: newMode, primary_color: newColor })
-        });
-      } catch (error) {
-        console.error("Error guardando settings:", error);
-      }
-    }, 1000), 
-    [] 
+    debounce(async (uid: string, m: string, c: string, name: string, fs: number) => {
+      await fetch(`${USER_SETTINGS_URL}/${uid}/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+              theme_mode: m, 
+              primary_color: c,
+              preferred_name: name,
+              font_scale: fs
+           })
+      });
+    }, 1000), []
   );
 
   const handleModeChange = (newMode: 'light' | 'dark') => {
     setMode(newMode); 
-    if (userId) saveToApi(userId, newMode, primaryColor);
+    if (userId) saveToApi(userId, newMode, primaryColor, preferredName, fontScale);
   };
 
   const handleColorChange = (newColor: string) => {
     setPrimaryColor(newColor);
-    if (userId) saveToApi(userId, mode, newColor);
+    if (userId) saveToApi(userId, mode, newColor, preferredName, fontScale);
   };
+
+  const handleNameChange = (val: string) => {
+      setPreferredName(val);
+      if(userId) saveToApi(userId, mode, primaryColor, val, fontScale);
+  }
+  const handleFontChange = (val: number) => {
+      setFontScale(val);
+      if(userId) saveToApi(userId, mode, primaryColor, preferredName, val);
+  }
 
   // --- 3. LÓGICA DE NAVEGACIÓN ---
   
@@ -139,7 +152,7 @@ function ChatScreen() {
     navigate('/login');
   };
 
-  const themeConfig = useMemo(() => getTheme(mode, primaryColor), [mode, primaryColor]);
+  const themeConfig = useMemo(() => getTheme(mode, primaryColor, fontScale), [mode, primaryColor, fontScale]);
   
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false); // Para el overlay en móvil
@@ -209,7 +222,11 @@ function ChatScreen() {
             primaryColor={primaryColor}
             onModeChange={handleModeChange}
             onColorChange={handleColorChange}
-            onLogout={handleLogoutClick} 
+            onLogout={handleLogoutClick}
+            preferredName={preferredName}
+            onNameChange={handleNameChange}
+            fontScale={fontScale}
+            onFontScaleChange={handleFontChange}
         />
 
         {/* Modal de Confirmación de Logout */}
